@@ -4,7 +4,7 @@ const axios = require('axios');
 const HF_API_URL = 'https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1';
 
 /**
- * Generate workout plan using AI
+ * Generate workout plan using AI with DETAILED exercise instructions
  * @param {Object} userProfile - User's fitness profile
  * @param {Array} workoutHistory - User's past workout logs (for personalization)
  * @returns {Object} Generated workout plan
@@ -20,7 +20,7 @@ const generateWorkoutPlan = async (userProfile, workoutHistory = []) => {
       {
         inputs: prompt,
         parameters: {
-          max_new_tokens: 2000,
+          max_new_tokens: 3000, // INCREASED for detailed instructions
           temperature: 0.7,
           top_p: 0.95,
           return_full_text: false
@@ -59,7 +59,7 @@ const generateWorkoutPlan = async (userProfile, workoutHistory = []) => {
 };
 
 /**
- * Build AI prompt from user profile
+ * Build ENHANCED AI prompt with detailed instruction requirements
  */
 const buildWorkoutPrompt = (userProfile, workoutHistory) => {
   const { age, gender, height, weight, fitnessLevel, fitnessGoals, equipment, workoutDuration, workoutsPerWeek, injuries, medicalConditions } = userProfile;
@@ -75,10 +75,10 @@ const buildWorkoutPrompt = (userProfile, workoutHistory) => {
     const avgCompletion = workoutHistory.reduce((sum, log) => sum + log.completionPercentage, 0) / workoutHistory.length;
     const avgDifficulty = workoutHistory.filter(log => log.difficultyRating).reduce((sum, log) => sum + log.difficultyRating, 0) / workoutHistory.filter(log => log.difficultyRating).length || 3;
     
-    historyInsight = `\nWorkout History Insight: The user has completed ${workoutHistory.length} workouts with an average completion rate of ${avgCompletion.toFixed(0)}%. They rated workouts an average difficulty of ${avgDifficulty.toFixed(1)}/5.`;
+    historyInsight = `\nWorkout History: User completed ${workoutHistory.length} workouts with ${avgCompletion.toFixed(0)}% average completion rate. Average difficulty rating: ${avgDifficulty.toFixed(1)}/5.`;
   }
 
-  const prompt = `You are a professional fitness trainer. Create a personalized weekly workout plan.
+  const prompt = `You are a professional fitness trainer creating a personalized workout plan. Provide DETAILED exercise instructions that are beginner-friendly and safe.
 
 User Profile:
 - Age: ${age} years old
@@ -93,16 +93,48 @@ User Profile:
 ${injuries ? `- Injuries/Limitations: ${injuries}` : ''}
 ${medicalConditions ? `- Medical Conditions: ${medicalConditions}` : ''}${historyInsight}
 
-Create a ${workoutsPerWeek}-day workout plan. For each day, provide:
-1. Day name (e.g., "Monday - Upper Body")
-2. 5-7 exercises with:
-   - Exercise name
-   - Sets and reps
-   - Brief instructions
-   - Target muscles
-   - Difficulty (easy/medium/hard)
+Create a ${workoutsPerWeek}-day workout plan. For EACH exercise, provide:
 
-Format each day clearly with exercise details. Keep it practical and safe for the user's fitness level.
+1. Exercise name
+2. Sets and reps (e.g., "3 sets of 10-12 reps")
+3. Rest time (e.g., 60 seconds)
+
+4. DETAILED STEP-BY-STEP INSTRUCTIONS (4-6 steps):
+   - Number each step clearly
+   - Include body positioning, movement pattern, and key form cues
+   - Be specific and clear for beginners
+
+5. PRIMARY MUSCLES worked (list 2-3 main muscle groups)
+
+6. CORRECT FORM TIPS (2-3 "do this" tips):
+   - What the user SHOULD do for proper form
+
+7. COMMON MISTAKES to avoid (2-3 mistakes):
+   - What the user should NOT do
+
+8. BREATHING TECHNIQUE:
+   - When to inhale and when to exhale during the movement
+
+9. EASIER VERSION (for beginners):
+   - How to modify the exercise to make it easier
+
+10. HARDER VERSION (for advanced):
+    - How to make the exercise more challenging
+
+11. SAFETY NOTE:
+    - Important safety considerations
+
+Format each exercise clearly with labels like:
+- STEP-BY-STEP:
+- MUSCLES:
+- DO THIS:
+- AVOID THIS:
+- BREATHING:
+- EASIER:
+- HARDER:
+- SAFETY:
+
+Create practical exercises appropriate for ${fitnessLevel} level with ${equipment.join(', ')} equipment. Keep the workout safe, effective, and achievable in ${workoutDuration} minutes per session.
 
 Workout Plan:`;
 
@@ -110,19 +142,19 @@ Workout Plan:`;
 };
 
 /**
- * Parse AI response into structured format
+ * Parse AI response into structured format with detailed instructions
  */
 const parseAIResponse = (aiText, userProfile) => {
   const lines = aiText.split('\n').filter(line => line.trim());
   const dailyWorkouts = [];
   let currentDay = null;
   let currentExercises = [];
+  let currentExercise = null;
 
-  // Simple parsing logic
   for (let line of lines) {
     line = line.trim();
     
-    // Detect day headers (e.g., "Day 1:", "Monday:", etc.)
+    // Detect day headers
     if (line.match(/^(Day\s+\d+|Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)/i)) {
       // Save previous day if exists
       if (currentDay && currentExercises.length > 0) {
@@ -137,17 +169,110 @@ const parseAIResponse = (aiText, userProfile) => {
       // Start new day
       currentDay = line.replace(/^Day\s+\d+:\s*/i, '').replace(/:/g, '').trim();
       currentExercises = [];
+      currentExercise = null;
     }
-    // Detect exercises (lines with numbers, sets/reps, or exercise names)
-    else if (line.match(/\d+\s+(sets|reps|x)/i) || line.match(/^\d+\./)) {
-      const exercise = parseExerciseLine(line);
-      if (exercise) {
-        currentExercises.push(exercise);
+    // Detect new exercise (numbered line or clear exercise name)
+    else if (line.match(/^\d+\.\s+\w+/) || (line.length < 50 && line.match(/^[A-Z]/))) {
+      // Save previous exercise if exists
+      if (currentExercise) {
+        currentExercises.push(currentExercise);
+      }
+      
+      // Start new exercise
+      const exerciseName = line.replace(/^\d+\.\s*/, '').split('-')[0].trim();
+      currentExercise = {
+        name: exerciseName,
+        sets: 3,
+        reps: '10-12',
+        duration: 0,
+        restTime: 60,
+        instructions: '',
+        stepByStep: [],
+        targetMuscles: [],
+        correctForm: [],
+        commonMistakes: [],
+        breathing: '',
+        easierVersion: '',
+        harderVersion: '',
+        safetyNote: '',
+        difficulty: 'medium'
+      };
+    }
+    // Parse detailed sections
+    else if (currentExercise) {
+      const lowerLine = line.toLowerCase();
+      
+      // Extract sets/reps
+      if (line.match(/(\d+)\s*sets?\s+(?:of\s+)?(\d+(?:-\d+)?)\s*reps?/i)) {
+        const match = line.match(/(\d+)\s*sets?\s+(?:of\s+)?(\d+(?:-\d+)?)\s*reps?/i);
+        currentExercise.sets = parseInt(match[1]);
+        currentExercise.reps = match[2];
+      }
+      
+      // Parse step-by-step instructions
+      if (lowerLine.includes('step-by-step') || lowerLine.includes('steps:')) {
+        // Next lines are steps
+        continue;
+      } else if (line.match(/^\d+[\.)]\s+/)) {
+        currentExercise.stepByStep.push(line.replace(/^\d+[\.)]\s+/, ''));
+      }
+      
+      // Parse muscles
+      if (lowerLine.includes('muscles:') || lowerLine.includes('primary muscles')) {
+        currentExercise.targetMuscles = line.split(':')[1]?.split(',').map(m => m.trim()) || [];
+      }
+      
+      // Parse correct form
+      if (lowerLine.includes('do this:') || lowerLine.includes('correct form')) {
+        const tips = line.split(':')[1];
+        if (tips) currentExercise.correctForm.push(tips.trim());
+      } else if (currentExercise.correctForm.length > 0 && line.startsWith('-')) {
+        currentExercise.correctForm.push(line.substring(1).trim());
+      }
+      
+      // Parse mistakes
+      if (lowerLine.includes('avoid this:') || lowerLine.includes('common mistakes') || lowerLine.includes('don\'t')) {
+        const mistakes = line.split(':')[1];
+        if (mistakes) currentExercise.commonMistakes.push(mistakes.trim());
+      } else if (currentExercise.commonMistakes.length > 0 && line.startsWith('-')) {
+        currentExercise.commonMistakes.push(line.substring(1).trim());
+      }
+      
+      // Parse breathing
+      if (lowerLine.includes('breathing:')) {
+        currentExercise.breathing = line.split(':')[1]?.trim() || '';
+      }
+      
+      // Parse easier version
+      if (lowerLine.includes('easier:') || lowerLine.includes('beginner')) {
+        currentExercise.easierVersion = line.split(':')[1]?.trim() || line;
+      }
+      
+      // Parse harder version
+      if (lowerLine.includes('harder:') || lowerLine.includes('advanced')) {
+        currentExercise.harderVersion = line.split(':')[1]?.trim() || line;
+      }
+      
+      // Parse safety
+      if (lowerLine.includes('safety:')) {
+        currentExercise.safetyNote = line.split(':')[1]?.trim() || '';
+      }
+      
+      // Build combined instructions from all parts
+      if (currentExercise.stepByStep.length > 0) {
+        currentExercise.instructions = '📋 STEPS: ' + currentExercise.stepByStep.join(' → ') + 
+          (currentExercise.targetMuscles.length > 0 ? '. 💪 MUSCLES: ' + currentExercise.targetMuscles.join(', ') : '') +
+          (currentExercise.breathing ? '. 🫁 BREATHING: ' + currentExercise.breathing : '') +
+          (currentExercise.correctForm.length > 0 ? '. ✅ DO: ' + currentExercise.correctForm.join('; ') : '') +
+          (currentExercise.commonMistakes.length > 0 ? '. ❌ AVOID: ' + currentExercise.commonMistakes.join('; ') : '');
       }
     }
   }
 
-  // Add last day
+  // Save last exercise and day
+  if (currentExercise) {
+    currentExercises.push(currentExercise);
+  }
   if (currentDay && currentExercises.length > 0) {
     dailyWorkouts.push({
       day: currentDay,
@@ -166,58 +291,126 @@ const parseAIResponse = (aiText, userProfile) => {
 };
 
 /**
- * Parse individual exercise line
- */
-const parseExerciseLine = (line) => {
-  // Remove numbering (1. 2. etc.)
-  line = line.replace(/^\d+\.\s*/, '');
-
-  // Extract sets and reps
-  const setsMatch = line.match(/(\d+)\s*sets?/i);
-  const repsMatch = line.match(/(\d+)(?:-(\d+))?\s*reps?/i);
-  
-  const sets = setsMatch ? parseInt(setsMatch[1]) : 3;
-  const reps = repsMatch ? (repsMatch[2] ? `${repsMatch[1]}-${repsMatch[2]}` : repsMatch[1]) : '10-12';
-
-  // Extract exercise name (everything before sets/reps)
-  let name = line.split(/\d+\s*sets?/i)[0].trim();
-  name = name.replace(/[-–—]/g, '').trim() || 'Exercise';
-
-  return {
-    name: name,
-    sets: sets,
-    reps: reps,
-    duration: 0,
-    restTime: 60,
-    instructions: `Perform ${sets} sets of ${reps} reps with proper form`,
-    targetMuscles: [],
-    difficulty: 'medium'
-  };
-};
-
-/**
  * Estimate calories burned
  */
 const estimateCalories = (exerciseCount, duration) => {
-  // Rough estimate: 5 calories per minute of exercise
   return Math.round(duration * 5);
 };
 
 /**
- * Fallback workout plan if AI fails
+ * Enhanced fallback workout plan with detailed instructions
  */
 const getFallbackPlan = (userProfile) => {
-  const { fitnessLevel, workoutsPerWeek, fitnessGoals } = userProfile;
+  const { fitnessLevel, workoutsPerWeek } = userProfile;
+
+  const detailedExercises = {
+    pushups: {
+      name: 'Push-ups',
+      sets: 3,
+      reps: '10-12',
+      restTime: 60,
+      instructions: '📋 STEPS: 1) Start in high plank position with hands shoulder-width apart. 2) Keep core engaged and body in straight line. 3) Lower chest to floor (2 seconds), elbows at 45° angle. 4) Push back up explosively (1 second). 💪 MUSCLES: Chest, Triceps, Shoulders, Core. 🫁 BREATHING: Inhale down, exhale up. ✅ DO: Keep body straight, engage core, controlled movement. ❌ AVOID: Sagging hips, flared elbows, holding breath. ⚡ EASIER: On knees or against wall. 🔥 HARDER: Feet elevated or add clap.',
+      targetMuscles: ['Chest', 'Triceps', 'Shoulders', 'Core'],
+      difficulty: 'easy',
+      stepByStep: [
+        'Start in high plank position with hands shoulder-width apart',
+        'Keep core engaged and body in straight line from head to heels',
+        'Lower your chest to floor slowly (2 seconds), elbows at 45° angle',
+        'Push explosively back to start position (1 second)',
+        'Repeat maintaining perfect form throughout'
+      ],
+      correctForm: ['Keep body in straight line', 'Engage core throughout', 'Controlled tempo'],
+      commonMistakes: ['Sagging hips', 'Flared elbows', 'Holding breath'],
+      breathing: 'Inhale as you lower, exhale as you push up',
+      easierVersion: 'Do on knees or with hands elevated on bench/wall',
+      harderVersion: 'Elevate feet, add clap, or try one-arm push-ups',
+      safetyNote: 'Stop if you feel sharp pain in shoulders or wrists'
+    },
+    squats: {
+      name: 'Bodyweight Squats',
+      sets: 3,
+      reps: '12-15',
+      restTime: 60,
+      instructions: '📋 STEPS: 1) Stand with feet shoulder-width apart, toes slightly out. 2) Keep chest up and core engaged. 3) Sit back and down like sitting in a chair. 4) Lower until thighs parallel to floor. 5) Push through heels to stand. 💪 MUSCLES: Quads, Glutes, Hamstrings, Core. 🫁 BREATHING: Inhale down, exhale up. ✅ DO: Chest up, weight in heels, knees track over toes. ❌ AVOID: Knees caving in, rounding back, lifting heels. ⚡ EASIER: Partial range or hold onto support. 🔥 HARDER: Add jump or single-leg.',
+      targetMuscles: ['Quadriceps', 'Glutes', 'Hamstrings'],
+      difficulty: 'easy',
+      stepByStep: [
+        'Stand with feet shoulder-width apart, toes slightly pointed out',
+        'Keep chest up, shoulders back, and core engaged',
+        'Sit back and down as if sitting in a chair',
+        'Lower until thighs are parallel to floor (or as low as comfortable)',
+        'Push through heels to return to standing position'
+      ],
+      correctForm: ['Chest up throughout', 'Weight in heels', 'Knees track over toes'],
+      commonMistakes: ['Knees caving inward', 'Rounding back', 'Lifting heels off ground'],
+      breathing: 'Inhale as you lower, exhale as you stand',
+      easierVersion: 'Reduce range of motion or hold onto wall for support',
+      harderVersion: 'Add jump at top or try single-leg squats',
+      safetyNote: 'Keep back straight and avoid knee pain'
+    },
+    plank: {
+      name: 'Plank Hold',
+      sets: 3,
+      reps: '30 seconds',
+      restTime: 45,
+      instructions: '📋 STEPS: 1) Start on forearms and toes. 2) Keep body in straight line from head to heels. 3) Engage core, squeeze glutes. 4) Hold position without sagging or piking. 💪 MUSCLES: Core, Shoulders, Back. 🫁 BREATHING: Breathe steadily throughout. ✅ DO: Straight body line, tight core, neutral neck. ❌ AVOID: Sagging hips, piking up, holding breath. ⚡ EASIER: On knees or shorter duration. 🔥 HARDER: Lift one leg or arm.',
+      targetMuscles: ['Core', 'Shoulders', 'Lower Back'],
+      difficulty: 'easy',
+      stepByStep: [
+        'Start in forearm plank position - elbows under shoulders',
+        'Keep body in straight line from head to heels',
+        'Engage your core and squeeze your glutes',
+        'Look at floor to keep neck neutral',
+        'Hold position steady without sagging or piking up'
+      ],
+      correctForm: ['Body in straight line', 'Core engaged', 'Breathe steadily'],
+      commonMistakes: ['Hips sagging down', 'Butt piking up', 'Holding breath'],
+      breathing: 'Breathe normally and steadily throughout the hold',
+      easierVersion: 'Do on knees or hold for shorter duration (15-20 seconds)',
+      harderVersion: 'Lift one leg, lift one arm, or add shoulder taps',
+      safetyNote: 'Stop if you feel lower back pain - focus on core engagement'
+    }
+  };
 
   const beginnerPlan = [
     {
       day: 'Day 1 - Full Body',
       exercises: [
-        { name: 'Bodyweight Squats', sets: 3, reps: '10-12', restTime: 60, instructions: 'Stand with feet shoulder-width apart, lower down as if sitting in a chair', targetMuscles: ['legs', 'glutes'], difficulty: 'easy' },
-        { name: 'Push-ups (knee or regular)', sets: 3, reps: '8-10', restTime: 60, instructions: 'Keep body straight, lower chest to ground', targetMuscles: ['chest', 'triceps'], difficulty: 'easy' },
-        { name: 'Plank Hold', sets: 3, reps: '20-30 seconds', restTime: 45, instructions: 'Hold body in straight line, engage core', targetMuscles: ['core'], difficulty: 'easy' },
-        { name: 'Walking Lunges', sets: 3, reps: '10 per leg', restTime: 60, instructions: 'Step forward, lower back knee toward ground', targetMuscles: ['legs', 'glutes'], difficulty: 'easy' },
-        { name: 'Mountain Climbers', sets: 3, reps: '15-20', restTime: 45, instructions: 'From plank, drive knees toward chest alternating', targetMuscles: ['core', 'cardio'], difficulty: 'medium' }
+        detailedExercises.squats,
+        detailedExercises.pushups,
+        detailedExercises.plank,
+        {
+          name: 'Walking Lunges',
+          sets: 3,
+          reps: '10 per leg',
+          restTime: 60,
+          instructions: '📋 STEPS: 1) Stand tall, step forward with one leg. 2) Lower back knee toward floor. 3) Front thigh parallel to floor. 4) Push through front heel to step forward with other leg. 💪 MUSCLES: Legs, Glutes, Core. 🫁 BREATHING: Inhale down, exhale up. ✅ DO: Long step, knee at 90°, chest up. ❌ AVOID: Short steps, knee past toes, leaning forward.',
+          targetMuscles: ['Quadriceps', 'Glutes', 'Hamstrings'],
+          difficulty: 'easy',
+          stepByStep: ['Stand tall', 'Step forward with one leg', 'Lower back knee', 'Push through front heel', 'Alternate legs'],
+          correctForm: ['Long stride', '90° knee angle', 'Chest upright'],
+          commonMistakes: ['Too short steps', 'Knee past toes', 'Leaning forward'],
+          breathing: 'Inhale as you lower, exhale as you stand',
+          easierVersion: 'Hold wall for balance or reduce range of motion',
+          harderVersion: 'Add dumbbells or do jumping lunges',
+          safetyNote: 'Keep front knee aligned with ankle'
+        },
+        {
+          name: 'Mountain Climbers',
+          sets: 3,
+          reps: '15-20',
+          restTime: 45,
+          instructions: '📋 STEPS: 1) Start in high plank position. 2) Drive one knee toward chest. 3) Quickly switch legs in running motion. 4) Keep hips low and core tight. 💪 MUSCLES: Core, Shoulders, Cardio. 🫁 BREATHING: Quick rhythm with movement. ✅ DO: Fast pace, hips low, core engaged. ❌ AVOID: Hips too high, slow pace, sagging form.',
+          targetMuscles: ['Core', 'Shoulders', 'Hip Flexors'],
+          difficulty: 'medium',
+          stepByStep: ['Start in plank', 'Drive knee to chest', 'Switch legs quickly', 'Keep core engaged', 'Maintain rhythm'],
+          correctForm: ['Fast alternating pace', 'Hips stay low', 'Core stays tight'],
+          commonMistakes: ['Hips too high', 'Too slow', 'Losing plank form'],
+          breathing: 'Quick breaths matching your movement rhythm',
+          easierVersion: 'Slow the pace down or reduce range of motion',
+          harderVersion: 'Increase speed or bring knees to opposite elbow',
+          safetyNote: 'Maintain plank form throughout - stop if form breaks'
+        }
       ],
       totalDuration: 30,
       caloriesBurn: 150
@@ -225,11 +418,55 @@ const getFallbackPlan = (userProfile) => {
     {
       day: 'Day 2 - Cardio & Core',
       exercises: [
-        { name: 'Jumping Jacks', sets: 3, reps: '30 seconds', restTime: 30, instructions: 'Jump while spreading legs and raising arms', targetMuscles: ['full body', 'cardio'], difficulty: 'easy' },
-        { name: 'Bicycle Crunches', sets: 3, reps: '15 per side', restTime: 45, instructions: 'Bring opposite elbow to knee in cycling motion', targetMuscles: ['core'], difficulty: 'easy' },
-        { name: 'Burpees', sets: 3, reps: '8-10', restTime: 60, instructions: 'Squat, jump back to plank, return to squat, jump up', targetMuscles: ['full body'], difficulty: 'medium' },
-        { name: 'Russian Twists', sets: 3, reps: '20 total', restTime: 45, instructions: 'Sit with feet elevated, twist torso side to side', targetMuscles: ['core'], difficulty: 'medium' },
-        { name: 'High Knees', sets: 3, reps: '30 seconds', restTime: 30, instructions: 'Run in place bringing knees to hip level', targetMuscles: ['cardio', 'legs'], difficulty: 'easy' }
+        {
+          name: 'Jumping Jacks',
+          sets: 3,
+          reps: '30 seconds',
+          restTime: 30,
+          instructions: '📋 STEPS: 1) Stand with feet together, arms at sides. 2) Jump while spreading legs and raising arms overhead. 3) Jump back to starting position. 4) Keep pace steady and rhythmic. 💪 MUSCLES: Full body, Cardio. 🫁 BREATHING: Rhythmic with jumps. ✅ DO: Full range, soft landings, steady pace. ❌ AVOID: Stiff landings, irregular rhythm.',
+          targetMuscles: ['Full Body', 'Cardiovascular'],
+          difficulty: 'easy',
+          stepByStep: ['Start with feet together', 'Jump spreading legs wide', 'Raise arms overhead', 'Jump back to start', 'Maintain rhythm'],
+          correctForm: ['Full range of motion', 'Soft landings', 'Steady pace'],
+          commonMistakes: ['Landing too hard', 'Irregular pace', 'Incomplete range'],
+          breathing: 'Breathe rhythmically with your jumping pattern',
+          easierVersion: 'Step side to side instead of jumping',
+          harderVersion: 'Increase speed or add squat at bottom',
+          safetyNote: 'Land softly to protect knees and joints'
+        },
+        {
+          name: 'Bicycle Crunches',
+          sets: 3,
+          reps: '15 per side',
+          restTime: 45,
+          instructions: '📋 STEPS: 1) Lie on back, hands behind head. 2) Bring opposite elbow to opposite knee. 3) Extend other leg straight. 4) Switch sides in cycling motion. 5) Keep lower back pressed to floor. 💪 MUSCLES: Core, Obliques. 🫁 BREATHING: Exhale as you twist. ✅ DO: Controlled twist, lower back down, full rotation. ❌ AVOID: Pulling neck, rushing movement, lifting lower back.',
+          targetMuscles: ['Abs', 'Obliques', 'Hip Flexors'],
+          difficulty: 'easy',
+          stepByStep: ['Lie on back, hands behind head', 'Bring elbow to opposite knee', 'Extend other leg', 'Switch sides smoothly', 'Keep lower back pressed down'],
+          correctForm: ['Controlled twisting', 'Lower back stays down', 'Full range twist'],
+          commonMistakes: ['Pulling on neck', 'Too fast', 'Lower back lifting'],
+          breathing: 'Exhale as you twist, inhale as you switch',
+          easierVersion: 'Keep feet on ground or reduce range',
+          harderVersion: 'Slow down tempo or add longer holds',
+          safetyNote: 'Never pull on your neck - hands just support head'
+        },
+        detailedExercises.plank,
+        {
+          name: 'Russian Twists',
+          sets: 3,
+          reps: '20 total',
+          restTime: 45,
+          instructions: '📋 STEPS: 1) Sit with knees bent, feet elevated. 2) Lean back slightly, core engaged. 3) Twist torso side to side. 4) Touch hands to floor on each side. 💪 MUSCLES: Obliques, Core. 🫁 BREATHING: Exhale with each twist. ✅ DO: Controlled rotation, core tight, chest up. ❌ AVOID: Using momentum, rounding back, holding breath.',
+          targetMuscles: ['Obliques', 'Core', 'Hip Flexors'],
+          difficulty: 'medium',
+          stepByStep: ['Sit with bent knees', 'Lean back at 45°', 'Elevate feet if possible', 'Twist torso side to side', 'Touch hands to floor each side'],
+          correctForm: ['Controlled rotation', 'Core stays tight', 'Back stays straight'],
+          commonMistakes: ['Using momentum', 'Rounding spine', 'Feet touching floor for stability'],
+          breathing: 'Exhale as you twist to each side',
+          easierVersion: 'Keep feet on ground for stability',
+          harderVersion: 'Hold weight or medicine ball, slower tempo',
+          safetyNote: 'Keep movements controlled - don\'t use momentum'
+        }
       ],
       totalDuration: 25,
       caloriesBurn: 180
@@ -237,11 +474,56 @@ const getFallbackPlan = (userProfile) => {
     {
       day: 'Day 3 - Lower Body',
       exercises: [
-        { name: 'Squats', sets: 4, reps: '12-15', restTime: 60, instructions: 'Feet shoulder-width, sit back and down', targetMuscles: ['legs', 'glutes'], difficulty: 'easy' },
-        { name: 'Glute Bridges', sets: 3, reps: '15', restTime: 45, instructions: 'Lie on back, lift hips while squeezing glutes', targetMuscles: ['glutes', 'hamstrings'], difficulty: 'easy' },
-        { name: 'Calf Raises', sets: 3, reps: '20', restTime: 45, instructions: 'Stand on toes, lower back down slowly', targetMuscles: ['calves'], difficulty: 'easy' },
-        { name: 'Wall Sit', sets: 3, reps: '30 seconds', restTime: 60, instructions: 'Slide back against wall until thighs parallel to ground', targetMuscles: ['legs'], difficulty: 'medium' },
-        { name: 'Step-ups', sets: 3, reps: '10 per leg', restTime: 60, instructions: 'Step onto elevated surface, alternate legs', targetMuscles: ['legs', 'glutes'], difficulty: 'medium' }
+        detailedExercises.squats,
+        {
+          name: 'Glute Bridges',
+          sets: 3,
+          reps: '15',
+          restTime: 45,
+          instructions: '📋 STEPS: 1) Lie on back, knees bent, feet flat. 2) Push through heels to lift hips. 3) Squeeze glutes at top. 4) Lower hips slowly. 💪 MUSCLES: Glutes, Hamstrings, Lower Back. 🫁 BREATHING: Exhale up, inhale down. ✅ DO: Squeeze glutes hard, push through heels, straight body line. ❌ AVOID: Arching back excessively, using momentum.',
+          targetMuscles: ['Glutes', 'Hamstrings', 'Lower Back'],
+          difficulty: 'easy',
+          stepByStep: ['Lie on back with knees bent', 'Feet flat, hip-width apart', 'Push through heels to lift hips', 'Squeeze glutes hard at top', 'Lower slowly with control'],
+          correctForm: ['Squeeze glutes at top', 'Push through heels', 'Body forms straight line'],
+          commonMistakes: ['Excessive back arch', 'Using momentum', 'Not squeezing glutes'],
+          breathing: 'Exhale as you lift, inhale as you lower',
+          easierVersion: 'Reduce range of motion',
+          harderVersion: 'Single leg, add weight on hips, or hold at top',
+          safetyNote: 'Don\'t overarch your back - focus on glute squeeze'
+        },
+        {
+          name: 'Calf Raises',
+          sets: 3,
+          reps: '20',
+          restTime: 45,
+          instructions: '📋 STEPS: 1) Stand with feet hip-width. 2) Rise up onto toes. 3) Pause at top. 4) Lower slowly. 💪 MUSCLES: Calves. 🫁 BREATHING: Exhale up, inhale down. ✅ DO: Full range, controlled, pause at top. ❌ AVOID: Bouncing, partial range.',
+          targetMuscles: ['Calves'],
+          difficulty: 'easy',
+          stepByStep: ['Stand with feet hip-width', 'Rise onto balls of feet', 'Pause at top position', 'Lower heels slowly', 'Maintain balance throughout'],
+          correctForm: ['Full range of motion', 'Controlled tempo', 'Pause at top'],
+          commonMistakes: ['Bouncing', 'Partial range', 'Too fast'],
+          breathing: 'Exhale as you rise, inhale as you lower',
+          easierVersion: 'Hold wall for balance',
+          harderVersion: 'Single leg or hold dumbbells',
+          safetyNote: 'Keep movements controlled to avoid ankle strain'
+        },
+        {
+          name: 'Wall Sit',
+          sets: 3,
+          reps: '30 seconds',
+          restTime: 60,
+          instructions: '📋 STEPS: 1) Stand with back against wall. 2) Slide down until thighs parallel to floor. 3) Knees at 90° angle. 4) Hold position. 💪 MUSCLES: Quads, Glutes. 🫁 BREATHING: Steady throughout. ✅ DO: 90° knee angle, back flat on wall, breathe steadily. ❌ AVOID: Knees past toes, sliding down further.',
+          targetMuscles: ['Quadriceps', 'Glutes'],
+          difficulty: 'medium',
+          stepByStep: ['Stand with back flat against wall', 'Slide down until thighs parallel', 'Knees at 90° angle', 'Hold steady position', 'Breathe normally'],
+          correctForm: ['90° knee angle', 'Back pressed to wall', 'Steady breathing'],
+          commonMistakes: ['Knees too far forward', 'Sliding too low', 'Holding breath'],
+          breathing: 'Breathe steadily and normally throughout the hold',
+          easierVersion: 'Hold for shorter time or don\'t go as low',
+          harderVersion: 'Hold longer or lift one leg',
+          safetyNote: 'Keep knees aligned with ankles, not past toes'
+        },
+        detailedExercises.plank
       ],
       totalDuration: 30,
       caloriesBurn: 160
