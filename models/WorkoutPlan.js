@@ -37,7 +37,20 @@ const workoutPlanSchema = new mongoose.Schema({
       difficulty: {
         type: String,
         enum: ['easy', 'medium', 'hard']
-      }
+      },
+      // ExerciseDB integration fields
+      demoMediaUrl: String, // GIF or image URL from ExerciseDB
+      exerciseDBBodyPart: String,
+      exerciseDBEquipment: String,
+      exerciseDBTarget: String,
+      // Additional detailed instruction fields
+      stepByStep: [String],
+      correctForm: [String],
+      commonMistakes: [String],
+      breathing: String,
+      easierVersion: String,
+      harderVersion: String,
+      safetyNote: String
     }],
     totalDuration: Number, // Total workout time in minutes
     caloriesBurn: Number // Estimated calories

@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { enrichExercisesWithDemoMedia } = require('../services/exerciseDBService');
 
 // Hugging Face API configuration
 const HF_API_URL = 'https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1';
@@ -38,7 +39,30 @@ const generateWorkoutPlan = async (userProfile, workoutHistory = []) => {
     const aiResponse = response.data[0].generated_text;
     
     // Convert AI text to structured workout plan
-    const workoutPlan = parseAIResponse(aiResponse, userProfile);
+    let workoutPlan = parseAIResponse(aiResponse, userProfile);
+
+    // Enrich exercises with ExerciseDB demo media
+    console.log('🎬 Enriching exercises with ExerciseDB demo media...');
+    try {
+      // Enrich all exercises in all daily workouts
+      const enrichedDailyWorkouts = await Promise.all(
+        workoutPlan.map(async (dailyWorkout) => {
+          if (dailyWorkout.exercises && dailyWorkout.exercises.length > 0) {
+            const enrichedExercises = await enrichExercisesWithDemoMedia(dailyWorkout.exercises);
+            return {
+              ...dailyWorkout,
+              exercises: enrichedExercises
+            };
+          }
+          return dailyWorkout;
+        })
+      );
+      workoutPlan = enrichedDailyWorkouts;
+      console.log('✅ Exercise enrichment complete');
+    } catch (error) {
+      console.error('⚠️ Error enriching exercises with ExerciseDB:', error.message);
+      // Continue with workout plan even if enrichment fails
+    }
 
     return {
       success: true,
@@ -50,10 +74,34 @@ const generateWorkoutPlan = async (userProfile, workoutHistory = []) => {
     console.error('AI Service Error:', error.response?.data || error.message);
     
     // If AI fails, return a fallback basic plan
+    let fallbackPlan = getFallbackPlan(userProfile);
+    
+    // Enrich fallback plan exercises with ExerciseDB demo media
+    console.log('🎬 Enriching fallback plan exercises with ExerciseDB demo media...');
+    try {
+      const enrichedDailyWorkouts = await Promise.all(
+        fallbackPlan.map(async (dailyWorkout) => {
+          if (dailyWorkout.exercises && dailyWorkout.exercises.length > 0) {
+            const enrichedExercises = await enrichExercisesWithDemoMedia(dailyWorkout.exercises);
+            return {
+              ...dailyWorkout,
+              exercises: enrichedExercises
+            };
+          }
+          return dailyWorkout;
+        })
+      );
+      fallbackPlan = enrichedDailyWorkouts;
+      console.log('✅ Fallback plan enrichment complete');
+    } catch (enrichError) {
+      console.error('⚠️ Error enriching fallback plan:', enrichError.message);
+      // Continue with fallback plan even if enrichment fails
+    }
+    
     return {
       success: false,
       error: error.message,
-      data: getFallbackPlan(userProfile)
+      data: fallbackPlan
     };
   }
 };
