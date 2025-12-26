@@ -79,29 +79,80 @@ const getExerciseFromDB = async (exerciseName) => {
   try {
     console.log(`🔍 Searching ExerciseDB for: ${exerciseName} (normalized: ${normalizedName})`);
     
-    // Search by name - try exact match first
-    const response = await axios.get(`${EXERCISEDB_API_URL}/name/${encodeURIComponent(normalizedName)}`, {
-      headers: {
-        'X-RapidAPI-Key': EXERCISEDB_API_KEY,
-        'X-RapidAPI-Host': 'exercisedb.p.rapidapi.com'
-      },
-      timeout: 5000 // 5 second timeout
-    });
-
-    if (response.data && Array.isArray(response.data) && response.data.length > 0) {
-      // Find the best match (exact name match preferred, otherwise first result)
-      let exercise = response.data[0];
+    let exercise = null;
+    
+    // Strategy 1: Search by exact name
+    try {
+      const response = await axios.get(`${EXERCISEDB_API_URL}/name/${encodeURIComponent(normalizedName)}`, {
+        headers: {
+          'X-RapidAPI-Key': EXERCISEDB_API_KEY,
+          'X-RapidAPI-Host': 'exercisedb.p.rapidapi.com'
+        },
+        timeout: 5000
+      });
       
-      // Try to find exact name match
-      const exactMatch = response.data.find(
-        ex => ex.name && ex.name.toLowerCase() === normalizedName.toLowerCase()
-      );
-      if (exactMatch) {
-        exercise = exactMatch;
+      if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+        // Find the best match (exact name match preferred, otherwise first result)
+        exercise = response.data[0];
+        
+        // Try to find exact name match
+        const exactMatch = response.data.find(
+          ex => ex.name && ex.name.toLowerCase() === normalizedName.toLowerCase()
+        );
+        if (exactMatch) {
+          exercise = exactMatch;
+        }
       }
+    } catch (err) {
+      console.log(`⚠️ Exact name search failed: ${err.message}`);
+    }
+    
+    // Strategy 2: If no results, try searching by body part
+    if (!exercise) {
+      try {
+        const bodyParts = ['chest', 'back', 'cardio', 'lower%20arms', 'lower%20legs', 'neck', 'shoulders', 'upper%20arms', 'upper%20legs', 'waist'];
+        for (const bodyPart of bodyParts) {
+          try {
+            const bodyPartResponse = await axios.get(`${EXERCISEDB_API_URL}/bodyPart/${bodyPart}`, {
+              headers: {
+                'X-RapidAPI-Key': EXERCISEDB_API_KEY,
+                'X-RapidAPI-Host': 'exercisedb.p.rapidapi.com'
+              },
+              timeout: 3000
+            });
+            
+            if (bodyPartResponse.data && Array.isArray(bodyPartResponse.data)) {
+              // Search within results for matching name
+              const match = bodyPartResponse.data.find(ex => {
+                if (!ex.name) return false;
+                const exNameLower = ex.name.toLowerCase().replace(/\s+/g, '');
+                const normalizedLower = normalizedName.replace(/\s+/g, '');
+                return exNameLower.includes(normalizedLower) || normalizedLower.includes(exNameLower);
+              });
+              
+              if (match) {
+                exercise = match;
+                break;
+              }
+            }
+          } catch (err) {
+            continue;
+          }
+        }
+      } catch (err) {
+        console.log(`⚠️ Body part search also failed`);
+      }
+    }
+    
+    if (exercise) {
       
-      // Extract demo media URL (prefer gifUrl, fallback to image)
-      const demoMediaUrl = exercise.gifUrl || exercise.image || null;
+      // Extract demo media URL (prefer gifUrl, fallback to image, then try other fields)
+      let demoMediaUrl = exercise.gifUrl || exercise.image || null;
+      
+      // If still no URL, check for other possible fields
+      if (!demoMediaUrl) {
+        demoMediaUrl = exercise.gif || exercise.img || exercise.mediaUrl || exercise.videoUrl || null;
+      }
       
       if (!demoMediaUrl) {
         console.log(`⚠️ ExerciseDB found ${exerciseName} but no demo media available`);
@@ -238,14 +289,15 @@ const enrichExercisesWithDemoMedia = async (exercises) => {
     }
   });
 
-  // Merge ExerciseDB data into exercises
+  // Merge ExerciseDB data into exercises - PRESERVE ALL ORIGINAL FIELDS
   const enrichedExercises = exercises.map(exercise => {
     const normalized = normalizeExerciseName(exercise.name);
     const dbData = dbDataMap.get(normalized);
     
     if (dbData && dbData.demoMediaUrl) {
+      // Preserve ALL original exercise fields, just add demoMediaUrl
       return {
-        ...exercise,
+        ...exercise, // This preserves stepByStep, instructions, targetMuscles, etc.
         demoMediaUrl: dbData.demoMediaUrl,
         // Optionally add other ExerciseDB fields
         exerciseDBBodyPart: dbData.bodyPart,
@@ -254,8 +306,8 @@ const enrichExercisesWithDemoMedia = async (exercises) => {
       };
     }
     
-    // Return exercise as-is if no ExerciseDB data found
-    return exercise;
+    // Return exercise as-is if no ExerciseDB data found - PRESERVE ALL FIELDS
+    return { ...exercise };
   });
 
   return enrichedExercises;
