@@ -2,7 +2,7 @@
 const express = require('express');
 const dotenv = require('dotenv');
 const cors = require('cors');
-const connectDB = require('./config/db');
+const { connectDB, getDbStatus } = require('./config/db');
 
 // Load environment variables
 dotenv.config();
@@ -27,7 +27,8 @@ app.get('/', (req, res) => {
   res.json({ 
     message: 'AI Fitness App API is running!',
     version: '1.0.0',
-    status: 'healthy'
+    status: getDbStatus() ? 'healthy' : 'degraded',
+    database: getDbStatus() ? 'connected' : 'disconnected'
   });
 });
 

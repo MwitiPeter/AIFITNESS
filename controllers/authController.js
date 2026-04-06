@@ -1,5 +1,15 @@
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
+
+const isDatabaseConnected = () => mongoose.connection.readyState === 1;
+
+const sendDatabaseUnavailable = (res) => {
+  return res.status(503).json({
+    success: false,
+    message: 'Database unavailable. Please verify MongoDB connection or Atlas IP whitelist.'
+  });
+};
 
 // Generate JWT Token
 const generateToken = (id) => {
@@ -13,6 +23,10 @@ const generateToken = (id) => {
 // @access  Public
 const registerUser = async (req, res) => {
   try {
+    if (!isDatabaseConnected()) {
+      return sendDatabaseUnavailable(res);
+    }
+
     const { name, email, password } = req.body;
 
     // Validation
@@ -65,6 +79,10 @@ const registerUser = async (req, res) => {
 // @access  Public
 const loginUser = async (req, res) => {
   try {
+    if (!isDatabaseConnected()) {
+      return sendDatabaseUnavailable(res);
+    }
+
     const { email, password } = req.body;
 
     // Validation
@@ -119,6 +137,10 @@ const loginUser = async (req, res) => {
 // @access  Private
 const getMe = async (req, res) => {
   try {
+    if (!isDatabaseConnected()) {
+      return sendDatabaseUnavailable(res);
+    }
+
     // req.user is set by protect middleware
     const user = await User.findById(req.user.id);
 

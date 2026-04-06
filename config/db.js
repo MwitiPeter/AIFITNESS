@@ -1,6 +1,8 @@
 // Import mongoose to interact with MongoDB
 const mongoose = require('mongoose');
 
+const getDbStatus = () => mongoose.connection.readyState === 1;
+
 // Function to connect to database
 const connectDB = async () => {
   try {
@@ -9,10 +11,13 @@ const connectDB = async () => {
     
     console.log(`✅ MongoDB Connected: ${conn.connection.host}`);
   } catch (error) {
-    console.error(`❌ Error: ${error.message}`);
-    process.exit(1); // Exit if connection fails
+    console.error(`❌ MongoDB connection failed: ${error.message}`);
+    console.error('⚠️ Server will continue running, but database-dependent routes will be unavailable.');
   }
 };
 
 // Export so we can use in server.js
-module.exports = connectDB;
+module.exports = {
+  connectDB,
+  getDbStatus
+};
